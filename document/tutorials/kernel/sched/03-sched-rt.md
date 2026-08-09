@@ -77,4 +77,4 @@ struct rt_prio_array {        /* sched.h:308 */
 
 - 源码(本仓库 `third_party/linux/`,6.19.9):`kernel/sched/sched.h:308 struct rt_prio_array`、`:826 struct rt_rq`、`:109 sysctl_sched_rt_period`;`kernel/sched/rt.c`——`:18 sysctl_sched_rt_period`(默认值)、`:12 max_rt_runtime`/`MAX_BW`、`:68 init_rt_rq`、`:2575 DEFINE_SCHED_CLASS(rt)`、RT throttling 在 `sched_rt_runtime_exceeded`/`do_balance_runtime`;RT 调度策略 API `sched_set_fifo` 等在 `kernel/sched/syscalls.c`。
 - 关联本站:本篇是 [01 调度器框架](./01-sched-overview.md) `for_each_class` 里 RT 类的内部展开;普通任务的 fair 类见 [02 CFS/EEVDF](./02-sched-cfs-eevdf.md);"按 bug 类型选工具"里的 softdog/lockup 见 [debugging/00 调试全景图](../../debugging/00-debug-bug-classification.md)。
-- 读书笔记:[ch10](../../notes/linux_kernel_programming/ch10.md) 讲 POSIX 调度策略与优先级层级。
+- 读书笔记:[ch10](../../../notes/linux_kernel_programming/ch10.md) 讲 POSIX 调度策略与优先级层级。

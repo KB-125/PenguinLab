@@ -72,4 +72,4 @@ related:
 
 - 源码(本仓库 `third_party/linux/`,6.19.9):`kernel/sched/sched.h:2133 struct sched_group`、`:2116 struct sched_group_capacity`;`kernel/sched/fair.c:11904 sched_balance_rq`(及调用点 `:12405`/`:13042`)、PELT 负载跟踪在 `kernel/sched/fair.c` 的 `__update_load_avg_*`;拓扑构建 `kernel/sched/topology.c`、`include/linux/sched/topology.h`;亲和性 `task_struct->cpus_ptr` 见 [01 框架](./01-sched-overview.md)。
 - 关联本站:本篇是 [01 调度器框架](./01-sched-overview.md) "每核独立 rq"的多核后果;迁移本身走 [04 上下文切换](./04-sched-context-switch.md) 的核间迁移路径;亲和性/cgroup cpuset 关联 [driver model](../../drivers/00-drv-model.md) 与 cgroups。
-- 读书笔记:[ch10](../../notes/linux_kernel_programming/ch10.md) 讲 SMP 调度与 CPU 亲和性。
+- 读书笔记:[ch10](../../../notes/linux_kernel_programming/ch10.md) 讲 SMP 调度与 CPU 亲和性。

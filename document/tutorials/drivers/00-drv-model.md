@@ -1,5 +1,5 @@
 ---
-title: "driver model:内核怎么知道"这个硬件该用哪个驱动""
+title: 'driver model:内核怎么知道"这个硬件该用哪个驱动"'
 slug: drv-model
 prerequisites:
   - fs-sysfs

@@ -1,5 +1,5 @@
 ---
-title: "给内核模块装上"旋钮":module_param 与运行时调参"
+title: '给内核模块装上"旋钮":module_param 与运行时调参'
 prerequisites:
   - kernel-module-hello
   - kernel-module-9p-iteration

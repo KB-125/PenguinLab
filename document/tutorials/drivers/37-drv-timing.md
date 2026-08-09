@@ -1,5 +1,5 @@
 ---
-title: "时间与延迟:内核怎么"等""
+title: '时间与延迟:内核怎么"等"'
 slug: drv-timing
 prerequisites:
   - /tutorials/foundations/07-kernel-module-hello

@@ -71,4 +71,4 @@ related:
 
 - 源码(本仓库 `third_party/linux/`,6.19.9):`kernel/sched/core.c`(`context_switch`、`prepare_task_switch :5051`、`finish_task_switch :5082`、`__schedule :6729`);ARM64 架构部分 `arch/arm64/kernel/process.c`(`__switch_to`)与汇编 `cpu_switch_to`;`switch_mm` 在 `arch/arm64/include/asm/mmu_context.h`。
 - 关联本站:本篇是 [01 调度器框架](./01-sched-overview.md) `__schedule` 那条线的展开;切换的"进程上下文"底座在 [10 进程线程](../../foundations/10-process-thread-kernel.md);切换次数是性能指标,关联 [debugging/00 调试全景图](../../debugging/00-debug-bug-classification.md) 的 perf/trace 工具。
-- 读书笔记:[ch10](../../notes/linux_kernel_programming/ch10.md) 讲上下文切换的概念。
+- 读书笔记:[ch10](../../../notes/linux_kernel_programming/ch10.md) 讲上下文切换的概念。

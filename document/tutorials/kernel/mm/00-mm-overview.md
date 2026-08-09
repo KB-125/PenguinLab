@@ -91,4 +91,4 @@ VMA 集合存在 `mm_struct->mm_mt`(6.x 是 maple tree)。**校订增量**:6.x �
 
 - 源码(本仓库 `third_party/linux/`,6.19.9):`include/linux/mm_types.h:1075 struct mm_struct`(`mm_mt maple_tree :1092`/`pgd :1102`/`total_vm :1190`)、`:904 struct vm_area_struct`、`:704 struct vm_region`;`include/linux/mm.h`;VMA 管理在 `mm/mmap.c`、maple tree 在 `lib/maple_tree.c`;缺页处理 `mm/memory.c` 的 `handle_mm_fault`/`do_anonymous_page`/`do_fault`/`do_wp_page`;页表 API 在 `include/linux/pgtable.h`。
 - 关联本站:本篇是 [11 虚拟地址空间](../../foundations/11-virtual-address-space.md) 用户视角的内核侧展开;物理页底座 [01 buddy](./01-mm-buddy.md);页缓存把文件内容装进物理页 [04 page-cache](../fs/04-fs-page-cache.md);maple tree 是 6.x 重要基础设施,`Documentation/core-api/maple_tree.rst` 是它的官方文档。
-- 读书笔记:[ch07](../../notes/linux_kernel_programming/ch07.md) 讲内存管理基础。
+- 读书笔记:[ch07](../../../notes/linux_kernel_programming/ch07.md) 讲内存管理基础。
