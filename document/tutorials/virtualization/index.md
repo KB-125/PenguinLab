@@ -7,11 +7,14 @@ description: KVM、Namespaces、cgroups——虚拟化和容器的内核基础
 
 > KVM、Namespaces、cgroups——理解虚拟化和容器背后的内核机制。
 
-📚 **规划中**，还没开写。本站用 QEMU 跑内核，天然适合讲 KVM；容器部分会从 namespace + cgroup 的内核原语讲起。
+🔨 **整理中**。本站用 QEMU 跑内核，天然适合讲 KVM；容器部分从 namespace + cgroup 的内核原语讲起。
 
-## 计划
+## 教程 🔨 整理中
 
-- **KVM**：虚拟化扩展、vCPU、影子页表/EPT
-- **Namespaces**：pid/net/mnt/uts/ipc/user
-- **cgroups**：v1 vs v2、CPU/内存/IO 子系统
-- **容器运行时**：runc、OCI 规范与内核的接口
+- 🔨 [01 虚拟化总览:KVM 硬件虚拟化 与 容器 OS 级虚拟化](./01-virt-overview)
+- 🔨 [02 KVM:内核里的硬件虚拟化引擎](./02-virt-kvm)
+- 🔨 [03 QEMU + KVM:用户态仿真 + 内核加速的配合](./03-virt-qemu-kvm)
+- 🔨 [04 虚拟化项目:搭一个能跑的 VM/容器](./04-virt-project)
+- 🔨 [05 namespaces:容器隔离的内核基础](./05-virt-namespaces)
+- 🔨 [06 cgroups:容器资源限制的内核基础](./06-virt-cgroups)
+- 🔨 [07 容器项目:从零搭一个最小容器](./07-virt-container-project)
