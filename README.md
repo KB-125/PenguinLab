@@ -116,6 +116,9 @@ sudo apt install qemu-system-arm
 
 # 内核编译依赖
 sudo apt install build-essential libncurses-dev bison flex libssl-dev
+
+# initramfs 打包（把 BusyBox rootfs 打成 cpio.gz，缺了它打包会失败）
+sudo apt install cpio
 ```
 
 ### 3. 构建内核 + 启动 QEMU

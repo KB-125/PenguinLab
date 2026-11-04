@@ -67,6 +67,8 @@ grep -E '^CONFIG_(SERIAL_AMBA_PL011|SERIAL_AMBA_PL011_CONSOLE|BLK_DEV_INITRD|RD_
 
 四项必须全是 `=y`。缺任何一项，内核要么没有串口输出、要么忽略 initrd，QEMU 启动时就只剩"卡在 Starting QEMU..."、没有任何日志。
 
+顺带说下日志格式：fragment 里还开了 `CONFIG_PRINTK_TIME=y`，内核日志每行才会带上 `[    0.000000]` 这样的启动时间戳（下一篇的 boot log 就是这个样子）。`allnoconfig` 默认把它关掉，日志会退化成没有时间戳的裸文本——排查"卡在哪一步、每步耗时多少"时会非常难受。想在不改配置的情况下临时打开，可以给内核加命令行参数 `printk.time=1`。
+
 三步走完之后，最终的 `.config` 从几十项膨胀到了 538 项——多出来的那些全是 `olddefconfig` 自动补齐的依赖。这个数字依然只有 `defconfig`（6.19 内核下是 3305 项）的六分之一左右，而且每一个开启的配置项都能追溯到我们 fragment 里的某个明确需求。
 
 ### Config Fragment 的设计思路

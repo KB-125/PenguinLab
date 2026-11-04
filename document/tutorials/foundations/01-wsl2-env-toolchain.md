@@ -148,12 +148,16 @@ export ARCH=arm64
 export CROSS_COMPILE=aarch64-linux-gnu-
 ```
 
-除了工具链之外，编译内核还需要一些辅助工具（bison、flex 等）。Ubuntu/Debian 下一行搞定：
+除了工具链之外，编译内核还需要一些辅助工具（bison、flex 等）；把 rootfs 打成 initramfs 还需要 `cpio`。Ubuntu/Debian 下一起装上：
 
 ```bash
 # Ubuntu / Debian, UnAuthorized Commands，这部分我没验证
 sudo apt install build-essential libncurses-dev bison flex libssl-dev libelf-dev
+# initramfs 打包：缺了 cpio，rootfs-minimal-maker.sh 的打包步骤会失败
+sudo apt install cpio
 ```
+
+> `cpio` 值得单独强调一句：它缺失时不会立刻报错，而是可能产出一个 20 字节的"空 gzip"，内核启动时才以 `junk at the end of compressed archive` + `VFS: Unable to mount root fs` 的形式炸出来。脚本现在会提前检查 `cpio`，但装好它仍然是你的责任。
 
 Arch Linux 用户一般这些工具已经通过 base-devel 组装好了，如果没有就 `pacman -S base-devel` 补齐。
 

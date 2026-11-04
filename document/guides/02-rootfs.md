@@ -79,6 +79,7 @@ out/build_latest_arm64/
 
 ## 常见坑
 
+- **没装 `cpio`**：打包会静默产出 20 字节的空 gzip（`gzip -t` 都能过），内核启动时才有 `junk at the end of compressed archive` + `VFS: Unable to mount root fs`。脚本现在打包前先检查 `cpio`、打包后校验 gzip 与 cpio 尾记录，缺工具会直接报错退出；装一下即可：`sudo apt install cpio`。
 - **`--pack-only` 前忘了 cp ko**：包还是旧的，Guest 里 `insmod` 加载的还是老版本。养成「改了 rootfs 目录内容，就 pack-only」的肌肉记忆。
 - **ARCH 映射**：和内核一样，`aarch64` 的输出目录用 `arm64`。
 - **想加 BusyBox applet**：`scripts/rootfs-minimal-maker.sh menuconfig` 勾上（比如 telnetd、httpd），再 `--build-only` 重编。

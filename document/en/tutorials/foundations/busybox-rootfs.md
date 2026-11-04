@@ -52,10 +52,29 @@ The initrd image QEMU needs is a cpio-format archive, and it must be in `newc` f
 
 ```bash
 cd out/build_latest_arm64/rootfs
-find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9 > ../rootfs.cpio.gz
+find . -print0 | cpio --null -ov --format=newc | gzip -9 > ../rootfs.cpio.gz
 ```
 
 Let's break down this pipeline command: `find . -print0` recursively lists all files under rootfs, separated by null bytes (to handle spaces and special characters in filenames); `cpio --null -ov --format=newc` reads these paths and packages them into a newc-format cpio archive; `gzip -9` compresses it with the maximum compression ratio, ultimately producing a `rootfs.cpio.gz` file of about 1MB.
+
+> **Never add `2>/dev/null` to `cpio`.** This is a pitfall we hit for real: when the host has no `cpio`, the shell prints `cpio: command not found`, but `2>/dev/null` swallows it, and `gzip` happily compresses an empty stdin into a **valid 20-byte gzip** — the file exists, `gzip -t` passes, and the "success" looks airtight. It only surfaces when the kernel boots:
+
+```text
+Unpacking initramfs...
+Initramfs unpacking failed: junk at the end of compressed archive
+check access for rdinit=/init failed: -2, ignoring
+Kernel panic - not syncing: VFS: Unable to mount root fs on "/dev/ram0" or unknown-block(0,0)
+```
+
+The kernel's initramfs parser only marks the archive complete after it reads the cpio `TRAILER!!!` record; an empty archive has no such record, so the whole thing is discarded, `/init` does not exist, and the kernel falls back to mounting `root=/dev/ram0` (which this minimal kernel has no block device driver for). So verify right after packing:
+
+```bash
+ls -lh ../rootfs.cpio.gz                     # ~1MB is normal; 20 bytes means an empty archive
+gzip -l ../rootfs.cpio.gz                    # the uncompressed column must not be 0
+gzip -dc ../rootfs.cpio.gz | head -c 6       # should start with the cpio newc magic 070701
+```
+
+This project's `rootfs-minimal-maker.sh` builds these checks into the packaging step: it requires `cpio` up front, never swallows stderr, and validates the gzip stream plus the cpio trailer afterwards — any failure aborts instead of producing a "successful-looking" empty archive.
 
 Why static linking? When compiling BusyBox, we chose static linking (`CONFIG_STATIC=y`), which means the BusyBox executable contains all the required C library functions and doesn't depend on any external shared libraries (`.so` files). This is necessary in the initramfs scenario because our rootfs doesn't have a `/lib/` directory—if BusyBox were dynamically linked, executing `/init` after the kernel boots would fail to find the dynamic linker (`ld-linux-aarch64.so.1`) and exit with an error.
 

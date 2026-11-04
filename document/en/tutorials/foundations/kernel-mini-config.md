@@ -52,6 +52,8 @@ grep -E '^CONFIG_(SERIAL_AMBA_PL011|SERIAL_AMBA_PL011_CONSOLE|BLK_DEV_INITRD|RD_
 
 All four must be `=y`. Miss any one and the kernel either prints nothing or ignores the initrd, leaving QEMU stuck at "Starting QEMU..." with no log output at all.
 
+One more note on log format: the fragment also enables `CONFIG_PRINTK_TIME=y`, which is what puts a `[    0.000000]` boot timestamp in front of every kernel log line (as in the next article's boot log). `allnoconfig` leaves it off, which degrades the log to bare text and makes it much harder to tell where boot stalls or how long each step takes. To turn it on temporarily without touching the config, pass `printk.time=1` on the kernel command line.
+
 After these three steps, the final `.config` inflates from a few dozen options to 538 — the extras are all dependencies automatically filled in by `olddefconfig`. This is still only about a sixth of `defconfig` (3305 options with kernel 6.19), and every enabled option can be traced back to a specific requirement in our fragment.
 
 ### Design Philosophy of the Config Fragment

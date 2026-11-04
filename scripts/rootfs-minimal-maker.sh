@@ -444,6 +444,18 @@ FSTAB_EOF
 do_pack_cpio() {
     log_info "Packing rootfs into cpio archive..."
 
+    # cpio is a hard requirement for the initramfs. Without this check a host
+    # missing cpio still "succeeds": the shell's "cpio: command not found"
+    # went to /dev/null, gzip compressed an empty stdin, and the script
+    # reported a 20-byte file as a success. The kernel then died with
+    #   Initramfs unpacking failed: junk at the end of compressed archive
+    #   VFS: Unable to mount root fs on "/dev/ram0"
+    if ! command -v cpio >/dev/null 2>&1; then
+        log_error "cpio not found - cannot build the initramfs archive"
+        log_error "  Install it first: sudo apt install cpio"
+        return 1
+    fi
+
     if [ ! -d "${ROOTFS_INSTALL}" ]; then
         log_error "Rootfs directory not found: ${ROOTFS_INSTALL}"
         log_error "Please run with install step first"
@@ -462,10 +474,21 @@ do_pack_cpio() {
     old_dir=$(pwd)
     cd "${ROOTFS_INSTALL}"
 
-    log_cmd "find . | cpio -o -H newc 2>/dev/null | gzip > ${ROOTFS_CPIO}"
-    find . | cpio -o -H newc 2>/dev/null | gzip > "${ROOTFS_CPIO}"
+    # stderr stays visible on purpose: it is what reports a broken cpio.
+    # --quiet only silences the "N blocks" summary.
+    log_cmd "find . | cpio --quiet -o -H newc | gzip > ${ROOTFS_CPIO}"
+    set +e
+    find . | cpio --quiet -o -H newc | gzip > "${ROOTFS_CPIO}"
+    local -a pipe_status=("${PIPESTATUS[@]}")
+    set -e
 
     cd "${old_dir}"
+
+    if [ "${pipe_status[0]}" -ne 0 ] || [ "${pipe_status[1]}" -ne 0 ] || [ "${pipe_status[2]}" -ne 0 ]; then
+        rm -f "${ROOTFS_CPIO}"
+        log_error "Failed to create cpio archive (find/cpio/gzip exit: ${pipe_status[*]})"
+        return 1
+    fi
 
     if [ ! -f "${ROOTFS_CPIO}" ]; then
         log_error "Failed to create cpio archive"
@@ -474,10 +497,51 @@ do_pack_cpio() {
 
     local cpio_size
     cpio_size=$(stat -c%s "${ROOTFS_CPIO}" 2>/dev/null || stat -f%z "${ROOTFS_CPIO}" 2>/dev/null)
+
+    # An empty archive is still a structurally valid gzip stream (~20 bytes),
+    # so gzip -t alone cannot catch it - check the size first.
+    if [ "${cpio_size}" -lt 4096 ]; then
+        rm -f "${ROOTFS_CPIO}"
+        log_error "Cpio archive is only ${cpio_size} bytes - packing produced an empty image"
+        log_error "  The kernel would report: junk at the end of compressed archive"
+        return 1
+    fi
+
+    if ! gzip -t "${ROOTFS_CPIO}" 2>/dev/null; then
+        rm -f "${ROOTFS_CPIO}"
+        log_error "Cpio archive is not a valid gzip stream: ${ROOTFS_CPIO}"
+        return 1
+    fi
+
+    # The kernel's initramfs parser discards the whole archive unless it walks
+    # all the way to the cpio TRAILER!!! record; a truncated or empty archive
+    # only surfaces much later as "junk at the end of compressed archive".
+    local tmp_cpio
+    tmp_cpio=$(mktemp "${TMPDIR:-/tmp}/penguinlab-initramfs.XXXXXX")
+    local archive_ok=0
+    if gzip -dc "${ROOTFS_CPIO}" > "${tmp_cpio}" 2>/dev/null; then
+        # The trailer must be the *last* record, so look at the tail only -
+        # grepping the whole stream would also match the string inside
+        # BusyBox's own cpio applet.
+        if [ "$(head -c 6 "${tmp_cpio}")" = "070701" ] && \
+           tail -c 512 "${tmp_cpio}" | grep -aq "TRAILER!!!"; then
+            archive_ok=1
+        fi
+    fi
+    rm -f "${tmp_cpio}"
+
+    if [ "${archive_ok}" -ne 1 ]; then
+        rm -f "${ROOTFS_CPIO}"
+        log_error "Cpio archive is incomplete: missing 070701 newc header or TRAILER!!! record"
+        log_error "  The kernel would discard it: junk at the end of compressed archive"
+        return 1
+    fi
+
     local cpio_size_mb
     cpio_size_mb=$(echo "scale=2; ${cpio_size} / 1048576" | bc 2>/dev/null || echo "${cpio_size}")
 
     log_success "Cpio archive created: ${ROOTFS_CPIO} (${cpio_size_mb} MB)"
+    log_info "  Verified: valid gzip stream, cpio newc header + TRAILER!!! present"
     log_info "  Use with qemu-run.sh (auto-detected) or: -initrd ${ROOTFS_CPIO}"
 }
 

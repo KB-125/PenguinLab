@@ -65,10 +65,29 @@ QEMU 需要的 initrd 镜像是 cpio 格式的归档文件，而且必须是 `ne
 
 ```bash
 cd out/build_latest_arm64/rootfs
-find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9 > ../rootfs.cpio.gz
+find . -print0 | cpio --null -ov --format=newc | gzip -9 > ../rootfs.cpio.gz
 ```
 
 拆解一下这条管道命令：`find . -print0` 递归列出 rootfs 下所有文件，用 null 字节分隔（处理文件名中的空格和特殊字符）；`cpio --null -ov --format=newc` 读取这些路径，打包成 newc 格式的 cpio 归档；`gzip -9` 用最大压缩比压缩，最终产出一个大约 1MB 的 `rootfs.cpio.gz` 文件。
+
+> **别给 `cpio` 加 `2>/dev/null`。** 这是本站真踩过的坑：宿主机没装 `cpio` 时，shell 会报 `cpio: command not found`，但 `2>/dev/null` 把这个错误吞掉了，`gzip` 照样把「空输入」压成一个 **20 字节的合法 gzip**——文件在、`gzip -t` 也通过，打包"成功"得毫无破绽。直到启动内核才暴露：
+
+```text
+Unpacking initramfs...
+Initramfs unpacking failed: junk at the end of compressed archive
+check access for rdinit=/init failed: -2, ignoring
+Kernel panic - not syncing: VFS: Unable to mount root fs on "/dev/ram0" or unknown-block(0,0)
+```
+
+内核的 initramfs 解析器只有在读到 cpio 的 `TRAILER!!!` 记录后才会把状态置为完成；空归档里没有这条记录，于是整份数据被丢弃，`/init` 不存在，内核只能回退去挂 `root=/dev/ram0`（而这颗最小内核根本没有块设备驱动）。所以打包完先自检：
+
+```bash
+ls -lh ../rootfs.cpio.gz                     # 约 1MB 才正常，20 字节就是空包
+gzip -l ../rootfs.cpio.gz                    # uncompressed 一栏不能是 0
+gzip -dc ../rootfs.cpio.gz | head -c 6       # 应以 cpio newc 头 070701 开头
+```
+
+本项目的 `rootfs-minimal-maker.sh` 已经把这些检查做进打包流程：打包前确认 `cpio` 存在、不吞 stderr、打包后校验 gzip 格式与 cpio 尾部记录，任何一步不过就报错退出，不会再产出"看起来成功"的空包。
 
 为什么用静态链接？BusyBox 编译时我们选择了静态链接（`CONFIG_STATIC=y`），这意味着 BusyBox 的可执行文件包含了所有需要的 C 库函数，不依赖任何外部共享库（`.so` 文件）。在 initramfs 场景下这是必要的，因为我们的 rootfs 里没有 `/lib/` 目录——如果 BusyBox 是动态链接的，内核启动后执行 `/init` 时会找不到动态链接器（`ld-linux-aarch64.so.1`），直接报错退出。
 

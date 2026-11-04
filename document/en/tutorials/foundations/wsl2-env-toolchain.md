@@ -136,12 +136,16 @@ export ARCH=arm64
 export CROSS_COMPILE=aarch64-linux-gnu-
 ```
 
-Besides the toolchain, compiling the kernel requires some auxiliary tools (bison, flex, etc.). On Ubuntu/Debian, one line does the trick:
+Besides the toolchain, compiling the kernel requires some auxiliary tools (bison, flex, etc.); packaging the rootfs into an initramfs additionally requires `cpio`. On Ubuntu/Debian, install them in one go:
 
 ```bash
 # Ubuntu / Debian, UnAuthorized Commands，这部分我没验证
 sudo apt install build-essential libncurses-dev bison flex libssl-dev libelf-dev
+# initramfs packaging: without cpio, the pack step of rootfs-minimal-maker.sh fails
+sudo apt install cpio
 ```
+
+> `cpio` deserves its own callout: when it is missing, nothing fails immediately. Instead you can end up with a 20-byte "empty gzip" that only blows up at kernel boot as `junk at the end of compressed archive` plus `VFS: Unable to mount root fs`. The script now checks for `cpio` up front, but installing it is still on you.
 
 Arch Linux users generally already have these tools installed through the base-devel group. If not, use `pacman -S base-devel` to fill in the gaps.
 
