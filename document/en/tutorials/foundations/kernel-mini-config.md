@@ -24,13 +24,17 @@ make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
      O=../../out/build_latest_arm64 allnoconfig
 ```
 
-Second, we use `merge_config.sh` to merge in our prepared config fragment. This script lives in the `scripts/kconfig/` directory of the kernel source. It works by merging options from the fragment file into the baseline config one by one — encountering `=y` enables them, and encountering `=m` sets them as modules. The `-m` parameter is followed by the path to the target `.config` file:
+Second, we use `merge_config.sh` to merge in our prepared config fragment. This script lives in the `scripts/kconfig/` directory of the kernel source. It merges the fragment's options into a base config one by one — `=y` enables them, `=m` sets them as modules.
+
+Two parameters are easy to mix up: `-m` is just a switch meaning "only merge, do not run make" (it takes no path); what determines where the result goes is `-O <dir>` — the script writes the merged config to `$OUTPUT/.config`, and without `-O` it writes to `./.config` in the current directory. The first positional argument is the base `.config`; the fragments follow. So the correct invocation is:
 
 ```bash
-scripts/kconfig/merge_config.sh -m \
+scripts/kconfig/merge_config.sh -m -O ../../out/build_latest_arm64 \
     ../../out/build_latest_arm64/.config \
     ../../configs/arm64-qemu-virt-learn.config
 ```
+
+Do not drop `-O`. If you run this inside `third_party/linux` without it, the merged config lands in the source tree's `.config` while `out/build_latest_arm64/.config` stays the untouched `allnoconfig`; and since `-m` never runs make, nothing validates it — the mistake is carried silently all the way to build and boot (see the pitfalls below).
 
 Third, we use `olddefconfig` to have the kernel build system automatically fill in all dependencies. Our hand-written fragment only lists the options "we know we need," but kernel configs have tons of implicit dependencies — for example, enabling `CONFIG_PRINTK=y` might require several other config options. `olddefconfig` traverses the entire config tree, automatically filling in all missing dependencies and applying default values to any newly introduced options:
 
@@ -39,7 +43,16 @@ make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
      O=../../out/build_latest_arm64 olddefconfig
 ```
 
-After these three steps, the final `.config` inflates from a few dozen options to 442 — the extras are all dependencies automatically filled in by `olddefconfig`. This number is still less than half of `defconfig`, and every enabled option can be traced back to a specific requirement in our fragment.
+After merging, check the four critical options are present:
+
+```bash
+grep -E '^CONFIG_(SERIAL_AMBA_PL011|SERIAL_AMBA_PL011_CONSOLE|BLK_DEV_INITRD|RD_GZIP)=' \
+     out/build_latest_arm64/.config
+```
+
+All four must be `=y`. Miss any one and the kernel either prints nothing or ignores the initrd, leaving QEMU stuck at "Starting QEMU..." with no log output at all.
+
+After these three steps, the final `.config` inflates from a few dozen options to 538 — the extras are all dependencies automatically filled in by `olddefconfig`. This is still only about a sixth of `defconfig` (3305 options with kernel 6.19), and every enabled option can be traced back to a specific requirement in our fragment.
 
 ### Design Philosophy of the Config Fragment
 
@@ -81,17 +94,25 @@ This three-step process sounds simple, but we ran into quite a few pitfalls alon
 
 This is the most common issue. The kernel Makefile has a check (in the `outputmakefile` target of `Makefile`) that, when using `O=` for out-of-tree builds, detects whether a `.config` file, a `include/config/` directory, or a `arch/arm64/include/generated/` directory exists in the source tree root. If it detects any of them, it deems the "source tree not clean" and refuses to continue.
 
-Here's what happened to us: we had previously run a defconfig test directly in the source tree. Although we later cleaned up most artifacts with `make mrproper`, running `merge_config.sh` creates a `.config` file in the source tree root as a side effect, which caused subsequent `olddefconfig` runs to fail. The fix is straightforward — manually delete the leftover `.config`:
+What happened to us was worse. We had run `merge_config.sh` the old way (without `-O`), so the merged config was written to the `.config` in the source tree root. The following `make O=... olddefconfig` then failed with "source tree is not clean". We deleted the stray `.config` as the error suggested and reran it — and it passed, but it used the build directory's **allnoconfig that never had the fragment merged in**. The resulting kernel had neither a serial driver nor initramfs support, so QEMU produced no output at all.
+
+The real root cause is not the dirty source tree but the fact that the config never reached the build directory. Do both:
 
 ```bash
-rm -f third_party/linux/.config
+rm -f third_party/linux/.config      # clean up the leftover from the old invocation
+# then re-run the merge with -O as shown above and grep the four critical options
 ```
 
-The core principle to prevent this issue: when building with `O=`, never run make directly inside the source tree. If you absolutely must operate inside the source tree (e.g., `merge_config.sh`), immediately check and clean up `.config` afterward.
+Prevention: whenever you build out-of-tree with `O=`, always pass `-O` to `merge_config.sh`, and grep the four critical options after every merge. "No error" does not mean "correct".
 
 **merge_config.sh Parameters**
 
-The `-m` parameter must be followed by the full path to the target `.config` file, not a directory path. It modifies this file in place, merging the fragment options into it. So the correct invocation is `merge_config.sh -m <output_dir>/.config <fragment>`, not `merge_config.sh -m <output_dir> <fragment>`.
+The two easiest things to mix up:
+
+- `-m` takes no path; it merely means "merge only, do not run make".
+- `-O <dir>` decides where the result is written: `$OUTPUT/.config`, defaulting to `./.config` in the current directory.
+
+The first positional argument is the base `.config` (read and used as the starting point); the remaining ones are fragments. So the correct invocation is `merge_config.sh -m -O <output_dir> <output_dir>/.config <fragment>`, not `merge_config.sh -m <output_dir>/.config <fragment>` (the latter writes the merged result into the current directory).
 
 **Forgetting to Set ARCH and Building for x86**
 
@@ -106,8 +127,8 @@ Running `make O=... Image` directly from the project root `PenguinLab/` will thr
 ## Try It Yourself
 
 1. Confirm that `third_party/linux/Makefile` exists; if not, run `./scripts/linux-submodule.sh init` to fetch the kernel source
-2. Execute the three-step configuration process in order: `allnoconfig` → `merge_config.sh` → `olddefconfig`, making sure to include `ARCH` and `CROSS_COMPILE` with each step
-3. Use `grep -c "=y" out/build_latest_arm64/.config` to count the final number of config options — you should see a number between 400 and 500
+2. Execute the three-step configuration process in order: `allnoconfig` → `merge_config.sh` → `olddefconfig`; include `ARCH` and `CROSS_COMPILE` with steps 1 and 3, and make sure step 2 passes `-O` so it writes into the build directory
+3. Use `grep -c "=y" out/build_latest_arm64/.config` to count the final number of config options — you should see around 538 with kernel 6.19
 4. Use `diff <(grep "=y" out/build_latest_arm64/.config | sort) <(grep "=y" <(make ARCH=arm64 O=../../out/build_latest_arm64 defconfig && cat ../../out/build_latest_arm64/.config) | sort)` to compare it against defconfig and see what we cut out
 
 ## Further Reading

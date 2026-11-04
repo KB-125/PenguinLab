@@ -39,13 +39,17 @@ make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
      O=../../out/build_latest_arm64 allnoconfig
 ```
 
-第二步，用 `merge_config.sh` 把我们准备好的 config fragment 合并进去。这个脚本位于内核源码的 `scripts/kconfig/` 目录下，它的工作方式是把 fragment 文件里的配置项逐条合并到基础配置中——遇到 `=y` 就开启，遇到 `=m` 就设为模块。`-m` 参数后面跟的是目标 `.config` 文件路径：
+第二步，用 `merge_config.sh` 把我们准备好的 config fragment 合并进去。这个脚本位于内核源码的 `scripts/kconfig/` 目录下，它把 fragment 里的配置项逐条合并到基础配置中——遇到 `=y` 就开启，遇到 `=m` 就设为模块。
+
+调用时有两个参数容易记反：`-m` 是"只合并、不跑 make"的开关，本身不带路径；决定写到哪里的是 `-O <dir>`——脚本最终把合并结果写进 `$OUTPUT/.config`，省略 `-O` 就写到当前目录的 `./.config`。第一个位置参数才是作为基础的 `.config`，后面跟着 fragment。所以正确的写法是：
 
 ```bash
-scripts/kconfig/merge_config.sh -m \
+scripts/kconfig/merge_config.sh -m -O ../../out/build_latest_arm64 \
     ../../out/build_latest_arm64/.config \
     ../../configs/arm64-qemu-virt-learn.config
 ```
+
+注意 `-O` 不能省。如果你在 `third_party/linux` 下执行又漏了 `-O`，合并结果会写进源码树的 `.config`，而 `out/build_latest_arm64/.config` 还是那份没合并过的 `allnoconfig`；加上 `-m` 不跑 make、不做任何校验，这个错误会一路静默地带到编译和启动（见下文踩坑记录）。
 
 第三步，用 `olddefconfig` 让内核构建系统自动补齐所有依赖。我们手写的 fragment 只列了"我们知道自己需要的"选项，但内核配置之间有大量隐式依赖——比如开启了 `CONFIG_PRINTK=y`，它可能还依赖其他几个配置项。`olddefconfig` 会遍历整个配置树，把缺失的依赖全部自动补上，同时对新出现的配置项使用默认值：
 
@@ -54,7 +58,16 @@ make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
      O=../../out/build_latest_arm64 olddefconfig
 ```
 
-三步走完之后，最终的 `.config` 从几十项膨胀到了 442 项——多出来的那些全是 `olddefconfig` 自动补齐的依赖。这个数字依然只有 `defconfig` 的一半不到，而且每一个开启的配置项都能追溯到我们 fragment 里的某个明确需求。
+合并完成后先自检一眼，四个关键项缺一不可：
+
+```bash
+grep -E '^CONFIG_(SERIAL_AMBA_PL011|SERIAL_AMBA_PL011_CONSOLE|BLK_DEV_INITRD|RD_GZIP)=' \
+     out/build_latest_arm64/.config
+```
+
+四项必须全是 `=y`。缺任何一项，内核要么没有串口输出、要么忽略 initrd，QEMU 启动时就只剩"卡在 Starting QEMU..."、没有任何日志。
+
+三步走完之后，最终的 `.config` 从几十项膨胀到了 538 项——多出来的那些全是 `olddefconfig` 自动补齐的依赖。这个数字依然只有 `defconfig`（6.19 内核下是 3305 项）的六分之一左右，而且每一个开启的配置项都能追溯到我们 fragment 里的某个明确需求。
 
 ### Config Fragment 的设计思路
 
@@ -96,17 +109,25 @@ CONFIG_RD_GZIP=y
 
 这是最容易遇到的问题。内核 Makefile 里面有一个检查逻辑（在 `Makefile` 的 `outputmakefile` 目标中），当你使用 `O=` 分离编译目录时，它会检测源码树根目录下是否存在 `.config` 文件、`include/config/` 目录、或者 `arch/arm64/include/generated/` 目录。只要检测到其中任何一个，就会判定"源码树不干净"然后拒绝继续。
 
-我们碰到的情况是这样的：之前直接在源码树里跑过 defconfig 测试，虽然后来用 `make mrproper` 清理了大部分产物，但 `merge_config.sh` 在执行过程中会在源码树根目录创建一个 `.config` 文件（这是它的一个副作用），导致后续的 `olddefconfig` 报错。解决办法很直接——手动删除残留的 `.config`：
+我们碰到的更麻烦：之前用老写法跑过 `merge_config.sh`（没带 `-O`），合并结果被写进了源码树根目录的 `.config`，于是后面 `make O=... olddefconfig` 报了 "source tree is not clean"；照着报错删掉源码树的 `.config` 再跑一遍，这次通过了——但用的是构建目录里那份**从未合并过 fragment 的 `allnoconfig`**。最终编出来的内核没有串口驱动、也没有 initramfs 支持，QEMU 启动后一个字节都打印不出来。
+
+所以根子不是"源码树脏"，而是配置根本没写进构建目录。两件事一起做：
 
 ```bash
-rm -f third_party/linux/.config
+rm -f third_party/linux/.config      # 清掉老写法留下的残留
+# 再用上面带 -O 的命令重新合并，并 grep 自检四个关键项
 ```
 
-预防这个问题的核心原则是：用 `O=` 编译时，永远不要在源码树里直接跑 make。如果确实需要在源码树里操作（比如 `merge_config.sh`），操作完立刻检查并清理 `.config`。
+预防原则：用 `O=` 分离构建目录时，`merge_config.sh` 一律带 `-O`，每次合并后立刻自检，别把"没报错"当成"配对了"。
 
 **merge_config.sh 的参数**
 
-`-m` 参数后面跟的是目标 `.config` 文件的完整路径，不是目录路径。它直接就地修改这个文件，把 fragment 里的配置项合并进去。所以正确的调用方式是 `merge_config.sh -m <output_dir>/.config <fragment>`，而不是 `merge_config.sh -m <output_dir> <fragment>`。
+最容易记反的是这两个：
+
+- `-m` 后面**不跟**路径，它只是"只合并、不跑 make"的开关；
+- `-O <dir>` 决定结果写到 `$OUTPUT/.config`，不给就默认写当前目录的 `./.config`。
+
+第一个位置参数才是基础 `.config`（读入后作为合并起点），其余位置参数是 fragment。所以正确调用是 `merge_config.sh -m -O <output_dir> <output_dir>/.config <fragment>`，而不是 `merge_config.sh -m <output_dir>/.config <fragment>`——后者会把合并结果写进当前目录。
 
 **忘记设 ARCH 编译成了 x86**
 
@@ -121,8 +142,8 @@ rm -f third_party/linux/.config
 ## 动手试试
 
 1. 确认 `third_party/linux/Makefile` 存在，如果不存在先运行 `./scripts/linux-submodule.sh init` 拉取内核源码
-2. 按顺序执行三步配置流程：`allnoconfig` → `merge_config.sh` → `olddefconfig`，注意每步都带 `ARCH` 和 `CROSS_COMPILE`
-3. 用 `grep -c "=y" out/build_latest_arm64/.config` 统计最终配置项数量，应该看到 400-500 之间
+2. 按顺序执行三步配置流程：`allnoconfig` → `merge_config.sh` → `olddefconfig`，第 1、3 步记得带 `ARCH` 和 `CROSS_COMPILE`，第 2 步务必用 `-O` 指向构建目录
+3. 用 `grep -c "=y" out/build_latest_arm64/.config` 统计最终配置项数量，6.19 内核下应该看到 538 左右
 4. 用 `diff <(grep "=y" out/build_latest_arm64/.config | sort) <(grep "=y" <(make ARCH=arm64 O=../../out/build_latest_arm64 defconfig && cat ../../out/build_latest_arm64/.config) | sort)` 对比一下和 defconfig 的差距，看看我们砍掉了哪些东西
 
 ## 延伸阅读

@@ -13,7 +13,7 @@ make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
      O=../../out/build_latest_arm64 -j$(nproc)
 ```
 
-`-j$(nproc)` automatically uses all available CPU cores for parallel compilation. On our 14-thread machine, a mini config build takes about 3–5 minutes; if we use the 952 options in `defconfig`, that time doubles or more.
+`-j$(nproc)` automatically uses all available CPU cores for parallel compilation. On our 14-thread machine, a mini config build takes about 3–5 minutes; if we use the ~3300 options in `defconfig` (kernel 6.19), that time doubles or more.
 
 During the build, you'll see a massive amount of output scrolling rapidly across the terminal, with a short tag at the beginning of each line. If these tags look like gibberish, don't worry—that's exactly what we're about to break down.
 

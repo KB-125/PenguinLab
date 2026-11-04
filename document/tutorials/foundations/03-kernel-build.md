@@ -26,7 +26,7 @@ make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
      O=../../out/build_latest_arm64 -j$(nproc)
 ```
 
-`-j$(nproc)` 会自动使用所有可用的 CPU 核心进行并行编译。我们的 14 线程机器上，一次 mini config 编译大约 3-5 分钟；如果用 `defconfig` 的 952 项配置，时间会翻倍甚至更多。
+`-j$(nproc)` 会自动使用所有可用的 CPU 核心进行并行编译。我们的 14 线程机器上，一次 mini config 编译大约 3-5 分钟；如果用 `defconfig`（6.19 内核下约 3300 项配置），时间会翻倍甚至更多。
 
 编译过程中你会看到大量输出在终端里飞速滚动，每一行前面都有一个短标签。如果你觉得这些标签像天书，完全没关系——因为接下来我们就来拆解它们。
 
