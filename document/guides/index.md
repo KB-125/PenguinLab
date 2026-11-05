@@ -1,12 +1,12 @@
 ---
 title: 项目指南
-description: PenguinLab 的工具链全景——怎么交叉编译内核、做最小 rootfs、跑 QEMU、编内核模块、构建网站
+description: PenguinLab 的工具链全景——怎么交叉编译内核、做最小 rootfs、跑 QEMU、编内核模块、构建网站、配置汇编编辑器
 maturity: verified
 ---
 
 # 项目指南
 
-> 这一卷讲的是「怎么用 PenguinLab 这套环境真正干活」——交叉编译内核、做一个最小 rootfs、在 QEMU 里跑起来、编译内核模块、以及这个网站本身怎么构建。面向两类人：刚 clone 仓库不知道从哪下手的新人，和想把某条链路彻底吃透的老手。
+> 这一卷讲的是「怎么用 PenguinLab 这套环境真正干活」——交叉编译内核、做一个最小 rootfs、在 QEMU 里跑起来、编译内核模块、把这个网站本身构建出来，以及把 VSCode 配成能读汇编的编辑器。面向两类人：刚 clone 仓库不知道从哪下手的新人，和想把某条链路彻底吃透的老手。
 
 之所以单独抽一卷写这些，是因为 PenguinLab 的工具链横跨**宿主工具链、内核构建、initramfs、QEMU、模块编译、网站构建**好几层，每层都有自己的脚本和约定。它们散落在各处，容易「每次上手都要重新摸索一遍」——这卷文档把它们一次性钉死，既是给学习者的地图，也是项目的长期资产。
 
@@ -100,6 +100,7 @@ scripts/qemu-run.sh run
 - [QEMU 启动与调试](./03-qemu) — 跑起来、串口、网络、GDB 一条龙
 - [交叉编译内核模块](./04-module-build) — `Makefile.arch` 四架构、`export` 那个坑
 - [构建本网站](./05-site-build) — VitePress 分卷构建，以及几个踩过的认知坑
+- [配置 VSCode 汇编编辑环境](./06-vscode-asm) — 高亮、指令 hover、头文件跳转、宏展开，换台机器十分钟配好
 
 ---
 
