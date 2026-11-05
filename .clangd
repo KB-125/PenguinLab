@@ -3,19 +3,27 @@ Diagnostics:
     - unknown_argument
 
 CompileFlags:
-  CompilationDatabase: third_party/linux
+  # Merged database for the kernel and busybox builds (see
+  # scripts/gen-compile-commands.py).
+  CompilationDatabase: out/build_latest_arm64
   Remove:
+    # GCC-only flags that clang 18 does not accept.
     - -fno-allow-store-data-races
     - -fzero-init-padding-bits=all
     - -fmin-function-alignment=4
     - -fconserve-stack
     - -femit-struct-debug-baseonly
     - -mno-fdpic
-    - -fno-allow-store-data-races
-    - -fconserve-stack
-    - -mabi=*
     - -fno-ipa-sra
+    - -mabi=*
     - --param=*
+    # busybox-only: clang: error: unknown argument
+    - -fno-guess-branch-probability
+  Add:
+    # Keep clangd quiet about flags the kernel/busybox builds legitimately use.
+    - -Wno-unknown-warning-option
+    - -Wno-ignored-optimization-argument
+    - -Wno-unused-command-line-argument
 
 InlayHints:
   Enabled: Yes
