@@ -1,0 +1,43 @@
+# asm-lsp 配置：Linux 内核汇编阅读
+# - 服务器用它决定 hover/补全/诊断使用哪套指令集文档
+# - path 相对于工作区根目录（本文件所在目录）
+#
+# 关于诊断（diagnostics）：asm-lsp 默认会调用 gcc/clang 真正去汇编当前 .S 文件。
+# 内核汇编依赖 CPP 宏与内核头文件（#include <linux/linkage.h> 等），裸机编译必然
+# 报 "No such file or directory"，所以这里全部关闭，只保留 hover / 补全 / 跳转。
+# 注意：opts 必须挂在 default_config 或每个 [[project]] 下面，顶层 [opts] 会被忽略。
+
+[default_config]
+assembler = "gas"
+instruction_set = "arm64"
+
+[default_config.opts]
+diagnostics = false
+default_diagnostics = false
+
+[[project]]
+path = "third_party/linux/arch/arm64"
+assembler = "gas"
+instruction_set = "arm64"
+
+[project.opts]
+diagnostics = false
+default_diagnostics = false
+
+[[project]]
+path = "third_party/linux/arch/x86"
+assembler = "gas"
+instruction_set = "x86/x86-64"
+
+[project.opts]
+diagnostics = false
+default_diagnostics = false
+
+[[project]]
+path = "third_party/linux/arch/riscv"
+assembler = "gas"
+instruction_set = "riscv"
+
+[project.opts]
+diagnostics = false
+default_diagnostics = false
