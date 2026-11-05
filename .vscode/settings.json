@@ -1,0 +1,9 @@
+{
+  "clangd.arguments": [
+    "--query-driver=/usr/bin/aarch64-linux-gnu-*",
+    "--background-index",
+    "--header-insertion=never",
+    "--pch-storage=memory",
+    "--limit-results=0"
+  ]
+}
