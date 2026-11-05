@@ -35,6 +35,26 @@ maturity: verified
   git submodule update --init third_party/linux third_party/busybox
   ```
 
+### 一条命令装完（推荐）
+
+上面这些前提满足后，`scripts/setup-vscode-asm.sh` 把第 1–3 节全部做完，幂等、可反复跑：
+
+```bash
+./scripts/setup-vscode-asm.sh          # 装服务器 + 客户端扩展 + ArmLS + clangd
+./scripts/setup-vscode-asm.sh check    # 只体检，不改任何东西
+```
+
+常用开关（都走环境变量）：
+
+| 变量 | 作用 |
+|---|---|
+| `FORCE=1` | 已装也重下/重装（升版本、换分支时用） |
+| `SKIP_ARMLS=1` / `SKIP_CLANGD=1` | 不装可选扩展 |
+| `SRC_DIR=...` / `SERVER_DIR=...` | fork 克隆位置 / 服务器安装位置 |
+| `ASM_LSP_VERSION=...` / `FORK_BRANCH=...` | 换服务器版本、换客户端分支 |
+
+脚本不信任「装过就算成功」：服务器会跑 `asm-lsp version` 核对，客户端会对比安装目录里的版本号和 fork 分支的 `package.json`，不一致才重建。下面三节是它内部做的事，想手动执行或排查时照着看。
+
 ## 1. 装 asm-lsp 服务器（Rust 二进制）
 
 客户端只是壳，真正的语言服务器是 `asm-lsp`。上游有现成的 Linux x86_64 预编译包，**不需要装 Rust**：
