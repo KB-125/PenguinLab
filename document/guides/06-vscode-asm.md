@@ -117,7 +117,7 @@ default_diagnostics = false
 
 为什么要关诊断：asm-lsp 默认会真的调 `gcc`/`clang` 去汇编当前 `.S`。内核汇编依赖 CPP 的上下文，单独汇编必然报 `fatal error: linux/linkage.h: No such file or directory`，满屏红线。关掉后只剩 hover / 补全 / 跳转。
 
-**`.vscode/settings.json`** — 路由 + ArmLS 的开关：
+**`.vscode/settings.json`** — 路由 + ArmLS 的开关（下面是节选，完整版以仓库文件为准，里面还有 semantic highlighting 和 clangd 参数）：
 
 ```json
 {
@@ -149,7 +149,7 @@ default_diagnostics = false
 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- O=out/build_latest_arm64 compile_commands.json
 ```
 
-产物是 `out/build_latest_arm64/compile_commands.json`，正好是扩展的默认路径（设置项 `asmTools.compileCommands` 可改）。没有它也不会报错，只是 CPP 层静默不工作——这是最常见的一句「宏 hover 没反应」的根因。
+产物是 `out/build_latest_arm64/compile_commands.json`，正好是扩展的默认路径（设置项 `asmTools.compileCommands` 可改）。前提是这个构建目录已经有 `.config`（没配过就先跑 `ARCH=aarch64 LINUX_DEFCONFIG=defconfig scripts/linux-action-scripts.sh config`），否则 `make` 会先弹一堆配置问题。没有它也不会报错，只是 CPP 层静默不工作——这是最常见的一句「宏 hover 没反应」的根因。
 
 ## 6. 验证清单
 
