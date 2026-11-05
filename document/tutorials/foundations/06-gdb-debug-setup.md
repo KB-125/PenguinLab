@@ -13,9 +13,21 @@ maturity: verified
 
 ## 做什么
 
-这篇我们搭建内核调试的基础设施——GDB 远程调试 ARM64 内核。后续写内核模块、调驱动、排查 panic 都要靠这套工具链，所以它值得我们花时间认真搞对。说实话，这个过程比想象中曲折不少，我们一共碰到了三层问题：QEMU 没有开放调试端口、VSCode 调试配置用了错误的 GDB、以及 KASLR 导致断点地址对不上。每一层单独看都不复杂，但叠在一起就是"断点是红色的但内核直接跑过去了"这种让人血压拉满的现象。我们从头到尾拆解一遍，以后遇到类似问题可以按这个排查层次快速定位。
+这篇我们搭建内核调试的基础设施——GDB 远程调试 ARM64 内核。后续写内核模块、调驱动、排查 panic 都要靠这套工具链，所以它值得我们花时间认真搞对。说实话，这个过程比想象中曲折不少，我们一共碰到了四层问题：`vmlinux` 里根本没有调试信息、QEMU 没有开放调试端口、VSCode 调试配置用了错误的 GDB、以及 KASLR 导致断点地址对不上。每一层单独看都不复杂，但叠在一起就是"断点是红色的但内核直接跑过去了"这种让人血压拉满的现象。我们从头到尾拆解一遍，以后遇到类似问题可以按这个排查层次快速定位。
 
 ## 要了解什么
+
+### 第零层：`vmlinux` 里必须有调试信息
+
+这一层不在 QEMU 也不在 GDB 侧，而在内核自身。如果 `vmlinux` 没有调试信息，GDB 依然能连上、断点也依然能命中，但 `list` 只能看到反汇编、`info locals` 看不到变量、单步时没有源码行号——很多人会误以为是 GDB 或 KASLR 的问题，其实是内核编的时候就没带 DWARF。我们按 [02 mini config](./02-kernel-mini-config.md) 的流程配置内核时就撞上了这一层：fragment 里写了 `CONFIG_DEBUG_INFO=y`，但它在 `olddefconfig` 阶段被悄悄丢掉（原因和修法见那边的小节 "CONFIG_DEBUG_INFO=y 写了，vmlinux 却没有调试信息"）。
+
+连接 GDB 之前先花 10 秒确认：
+
+```bash
+aarch64-linux-gnu-readelf -S out/build_latest_arm64/vmlinux | grep -c '\.debug_'
+```
+
+输出应该是一个正数（DWARF 调试段的数量）；如果是 `0`，说明符号表里没有调试信息，先回 02 对一遍 fragment 里的 `CONFIG_DEBUG_KERNEL` 和 `CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT`。另一个最快的旁证是文件大小——带调试信息的 `vmlinux` 是几十 MB 量级，不带的是 7 MB 左右。
 
 ### 第一层：QEMU 必须开放 GDB 端口
 
@@ -61,6 +73,8 @@ QEMU 默认启动内核时是直接跑完的，不会在任何地方暂停等待
 
 这里有几个关键点。`program` 指向 `vmlinux` 而不是 `Image`，因为 GDB 需要 ELF 格式的文件来读取符号表和调试信息（`Image` 是剥离了这些信息的纯二进制）。`miDebuggerPath` 指向交叉调试器。`miDebuggerServerAddress` 告诉 VSCode GDB stub 的地址和端口。注意不要在 `setupCommands` 里重复添加 `target remote localhost:1234`——`miDebuggerServerAddress` 这个字段本身就会让 cppdbg 适配器自动执行 `target remote` 连接，手动再来一遍会导致重复连接报错。
 
+如果你用的是 Ubuntu/Debian、只装了 `gdb-multiarch`（本机就是这种情况：`/usr/bin/gdb-multiarch` 存在，但 `aarch64-linux-gnu-gdb` 不在 PATH 里），把上文所有命令里的 `aarch64-linux-gnu-gdb` 换成 `gdb-multiarch` 即可，它内置 AArch64 支持，效果一样。
+
 ### 第三层：KASLR 让断点地址偏走了
 
 前两层都修好之后，我们用命令行 GDB 验证断点确实能设成功：
@@ -73,12 +87,14 @@ $ aarch64-linux-gnu-gdb -batch \
   -ex "info breakpoints" \
   out/build_latest_arm64/vmlinux
 
-Breakpoint 1 at 0xffff800081f207c4: file init/main.c, line 1007.
+Breakpoint 1 at 0xffff800080550a08: file init/main.c, line 1006.
 ```
 
-`start_kernel` 的断点设在 `0xffff800081f207c4`，地址解析正确，源码行号也对。但内核还是不断——这就是第三层问题。
+`start_kernel` 的断点设在 `0xffff800080550a08`，地址解析正确，源码行号也对。但内核还是不断——这就是第三层问题。
 
-根因是 KASLR（Kernel Address Space Layout Randomization，内核地址空间布局随机化）。我们的 mini config 里开启了 `CONFIG_RANDOMIZE_BASE=y`，这意味着内核每次启动时会把自己的加载基址加上一个随机偏移量。`vmlinux` 文件里的符号地址是编译时静态链接的——比如 `start_kernel` 在 `0xffff800081f207c4`，内核基址 `_text` 从 `0xffff800080000000` 开始。但如果 KASLR 生效，实际运行时的基址会被偏移到一个不同的地址上，GDB 拿着编译时的静态地址去设断点，当然拦不住在不同地址上执行的代码。
+根因是 KASLR（Kernel Address Space Layout Randomization，内核地址空间布局随机化）。`vmlinux` 文件里的符号地址是编译时静态链接的——比如 `start_kernel` 在 `0xffff800080550a08`，内核基址 `_text` 从 `0xffff800080000000` 开始。如果 KASLR 生效，内核每次启动时会把加载基址加上一个随机偏移，实际运行时的地址就和编译时的符号地址错开，GDB 拿着静态地址去设断点，当然拦不住在不同地址上执行的代码。
+
+这里要补一句说明：我们这版 mini config 是从 `allnoconfig` 起步的，`CONFIG_RANDOMIZE_BASE` 默认是关的（可以 `grep RANDOMIZE_BASE out/build_latest_arm64/.config` 确认），所以用本站配置构建的内核不会触发这一层。但这是一个非常经典的坑——一旦你改用 `defconfig`（它默认 `CONFIG_RANDOMIZE_BASE=y`）或者手动把 KASLR 打开，静态符号地址和运行时地址就会错开，断点"设上了却打不中"。
 
 解决方案是在内核启动参数里加 `nokaslr`，告诉内核这次不要随机化地址。我们把它集成到了 `debug` 命令里，只有调试时才关掉 KASLR，正常运行时保持开启：
 
@@ -98,7 +114,7 @@ build_qemu_debug_command() {
 
 ### 完整的调试工作流
 
-三层问题全部修完之后，调试流程就通了，一共三步。
+上面的问题全部修完之后，调试流程就通了，一共三步。
 
 第一步，在一个终端启动 QEMU 调试模式：
 
@@ -122,7 +138,7 @@ aarch64-linux-gnu-gdb out/build_latest_arm64/vmlinux
 
 ### 排查层次总结
 
-回顾一下，这三个问题形成了一个从外到内的排查层次。最外层是 QEMU 启动参数——没有 `-s -S` 的话 GDB 根本没有介入的窗口。中间层是调试工具链——用错 GDB 或者重复执行 `target remote` 会导致连接异常。最深层是内核自身的安全特性 KASLR——它让运行时地址和编译时符号不一致。以后遇到"断点不命中"的问题，建议按 **QEMU 参数 → GDB 连接 → 地址映射** 这个顺序逐层排查。
+回顾一下，这几个问题形成了一个从外到内的排查层次。最外层是 `vmlinux` 本身没有调试信息——这时 GDB 能连上、断点能命中，但 `list` 只有反汇编、看不到源码和变量；再往里是 QEMU 启动参数——没有 `-s -S` 的话 GDB 根本没有介入的窗口；然后是调试工具链——用错 GDB 或者重复执行 `target remote` 会导致连接异常；最深层是内核自身的 KASLR——它让运行时地址和编译时符号不一致。以后遇到"断点不命中"或"断点命中但看不到源码"的问题，建议按 **调试信息 → QEMU 参数 → GDB 连接 → 地址映射** 这个顺序逐层排查。
 
 ## 动手试试
 

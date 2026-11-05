@@ -15,7 +15,7 @@ maturity: verified
 
 ## 做什么
 
-这篇我们要做一件很多人不会告诉你的事——亲手设计一份精简的内核配置，而不是无脑用 `defconfig`。最终我们会得到一份只包含 QEMU virt 机器启动所需最小功能集的内核配置，它只有 442 个 `=y` 配置项，而 `defconfig` 有 952 个。
+这篇我们要做一件很多人不会告诉你的事——亲手设计一份精简的内核配置，而不是无脑用 `defconfig`。最终我们会得到一份只包含 QEMU virt 机器启动所需最小功能集的内核配置，它只有 575 个 `=y` 配置项，而 `defconfig` 有 3305 个。
 
 啊，你说咱们这么快就动手嘛？对啊，不然呢？哈哈！咱们自己，亲手来配置一份内核，香不香？
 
@@ -25,7 +25,7 @@ maturity: verified
 
 `defconfig` 是内核源码里预定义的默认配置，对于 ARM64 来说它位于 `arch/arm64/configs/defconfig`。跑一遍 `make defconfig` 就能得到一份"能跑"的内核配置，听起来很美好，问题是这份配置包含了大量真实 SoC 的驱动——GPU、音频、各种开发板的外设驱动等等。我们用 QEMU virt 机器做内核学习，根本不需要这些硬件支持，它们除了拖慢编译速度和分散注意力之外没有任何用处。
 
-更直白地说，952 个 `=y` 项里面有超过一半是我们永远用不到的，编译出来多出的那几百个驱动在 QEMU 里也全都是 dead code。与其在一个臃肿的内核里学习，不如我们自己来裁剪。
+更直白地说，3305 个 `=y` 项里面有超过一半是我们永远用不到的，编译出来多出的那几百个驱动在 QEMU 里也全都是 dead code。与其在一个臃肿的内核里学习，不如我们自己来裁剪。
 
 ### 三步配置流程
 
@@ -58,7 +58,7 @@ make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
      O=../../out/build_latest_arm64 olddefconfig
 ```
 
-合并完成后先自检一眼，四个关键项缺一不可：
+合并完成后先自检一眼（回到仓库根目录执行），四个关键项缺一不可：
 
 ```bash
 grep -E '^CONFIG_(SERIAL_AMBA_PL011|SERIAL_AMBA_PL011_CONSOLE|BLK_DEV_INITRD|RD_GZIP)=' \
@@ -69,7 +69,7 @@ grep -E '^CONFIG_(SERIAL_AMBA_PL011|SERIAL_AMBA_PL011_CONSOLE|BLK_DEV_INITRD|RD_
 
 顺带说下日志格式：fragment 里还开了 `CONFIG_PRINTK_TIME=y`，内核日志每行才会带上 `[    0.000000]` 这样的启动时间戳（下一篇的 boot log 就是这个样子）。`allnoconfig` 默认把它关掉，日志会退化成没有时间戳的裸文本——排查"卡在哪一步、每步耗时多少"时会非常难受。想在不改配置的情况下临时打开，可以给内核加命令行参数 `printk.time=1`。
 
-三步走完之后，最终的 `.config` 从几十项膨胀到了 538 项——多出来的那些全是 `olddefconfig` 自动补齐的依赖。这个数字依然只有 `defconfig`（6.19 内核下是 3305 项）的六分之一左右，而且每一个开启的配置项都能追溯到我们 fragment 里的某个明确需求。
+三步走完之后，最终的 `.config` 从几十项膨胀到了 575 项——多出来的那些全是 `olddefconfig` 自动补齐的依赖。这个数字依然只有 `defconfig`（6.19 内核下是 3305 项）的六分之一左右，而且每一个开启的配置项都能追溯到我们 fragment 里的某个明确需求。
 
 ### Config Fragment 的设计思路
 
@@ -99,9 +99,9 @@ CONFIG_BLK_DEV_INITRD=y
 CONFIG_RD_GZIP=y
 ```
 
-文件系统方面，`devtmpfs` 让内核自动在 `/dev` 下创建设备节点，`procfs` 和 `sysfs` 分别提供 `/proc` 和 `/sys` 的内核信息接口，`tmpfs` 用于内存文件系统——这四个是 BusyBox shell 能正常工作的基本前提。内核模块相关的配置让我们后续可以加载和卸载 `.ko` 模块，而调试支持那一组（`DEBUG_INFO`、`GDB_SCRIPTS`、`KALLSYMS`）是为 GDB 远程调试准备的。
+文件系统方面，`devtmpfs` 让内核自动在 `/dev` 下创建设备节点，`procfs` 和 `sysfs` 分别提供 `/proc` 和 `/sys` 的内核信息接口，`tmpfs` 用于内存文件系统——这四个是 BusyBox shell 能正常工作的基本前提。内核模块相关的配置让我们后续可以加载和卸载 `.ko` 模块，而调试支持那一组（`DEBUG_KERNEL`、`DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT`、`GDB_SCRIPTS`、`KALLSYMS_ALL`）是为 GDB 远程调试准备的——注意 6.x 里 `DEBUG_INFO` 已经是隐藏符号，必须由 `DEBUG_KERNEL` 和 DWARF 版本 choice 带出来，直接写 `CONFIG_DEBUG_INFO=y` 会被静默丢掉（见踩坑记录）。
 
-整个 fragment 大概 40 行，每个配置项都有一行注释说明它的用途和依赖关系。这种"最小化 + 注释"的方式让配置文件本身就成了一份学习笔记。
+整个 fragment 五十多项配置、一百多行，每个配置项都有一行注释说明它的用途和依赖关系。这种"最小化 + 注释"的方式让配置文件本身就成了一份学习笔记。
 
 ### 踩坑记录
 
@@ -131,6 +131,25 @@ rm -f third_party/linux/.config      # 清掉老写法留下的残留
 
 第一个位置参数才是基础 `.config`（读入后作为合并起点），其余位置参数是 fragment。所以正确调用是 `merge_config.sh -m -O <output_dir> <output_dir>/.config <fragment>`，而不是 `merge_config.sh -m <output_dir>/.config <fragment>`——后者会把合并结果写进当前目录。
 
+**`CONFIG_DEBUG_INFO=y` 写了，`vmlinux` 却没有调试信息**
+
+这是我们后来在 GDB 那一篇真正踩到的坑，也是最隐蔽的一类：`merge_config.sh` 和 `olddefconfig` 全程不报错，选项就是安静地消失。三个机制叠在一起：
+
+1. 6.x 起 `CONFIG_DEBUG_INFO` 已经从"看得见的开关"变成了隐藏符号（没有 prompt）。`vmlinux` 里有没有调试信息，由 "Debug information" 这个 choice 决定，而这个 choice 又 `depends on DEBUG_KERNEL`。
+2. `olddefconfig` 会按 Kconfig 规则重新计算隐藏符号：fragment 里塞进去的 `CONFIG_DEBUG_INFO=y` 如果没有对应的 choice 选项支撑，会被改回 `n` 并从 `.config` 里删掉。
+3. `merge_config.sh` 把整个 fragment 追加到 `.config` 末尾，`olddefconfig` 按行序解析——所以父开关必须出现在子选项**前面**。`CONFIG_DEBUG_KERNEL=y` 要写在 `CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT=y` 之前才会生效。
+
+同一类问题还发生在 `VIRTIO`（需要先 `CONFIG_VIRTIO_MENU=y`）、`TRACING`/`FUNCTION_TRACER`/`KPROBE_EVENTS`（需要先 `CONFIG_FTRACE=y`）和 `LOCKDEP`（隐藏符号，要用 `CONFIG_PROVE_LOCKING=y` 打开）上。
+
+判断有没有中招，两个命令就够：
+
+```bash
+grep -E '^CONFIG_(DEBUG_KERNEL|DEBUG_INFO|GDB_SCRIPTS)=' out/build_latest_arm64/.config
+aarch64-linux-gnu-readelf -S out/build_latest_arm64/vmlinux | grep -c '\.debug_'
+```
+
+前一条三项都必须 `=y`；后一条应该是一个正数（DWARF 调试段的数量），如果是 `0`，GDB 能连上、也能设断点，但看不到源码和变量。顺带一提，中招时 `vmlinux` 只有 7 MB 左右，修好之后有几十 MB——文件大小本身就是最快的信号。
+
 **忘记设 ARCH 编译成了 x86**
 
 这个坑真的很经典。内核构建系统根据 `ARCH` 变量决定目标架构，不设就默认宿主架构（WSL2 里是 x86_64）。`CROSS_COMPILE` 不设就用本机 gcc。结果就是 `make -j14` 跑完了，输出 `arch/x86/boot/bzImage is ready`——编译了半天全是白费。
@@ -145,7 +164,7 @@ rm -f third_party/linux/.config      # 清掉老写法留下的残留
 
 1. 确认 `third_party/linux/Makefile` 存在，如果不存在先运行 `./scripts/linux-submodule.sh init` 拉取内核源码
 2. 按顺序执行三步配置流程：`allnoconfig` → `merge_config.sh` → `olddefconfig`，第 1、3 步记得带 `ARCH` 和 `CROSS_COMPILE`，第 2 步务必用 `-O` 指向构建目录
-3. 用 `grep -c "=y" out/build_latest_arm64/.config` 统计最终配置项数量，6.19 内核下应该看到 538 左右
+3. 用 `grep -c "=y" out/build_latest_arm64/.config` 统计最终配置项数量，6.19 内核下应该看到 575 左右
 4. 用 `diff <(grep "=y" out/build_latest_arm64/.config | sort) <(grep "=y" <(make ARCH=arm64 O=../../out/build_latest_arm64 defconfig && cat ../../out/build_latest_arm64/.config) | sort)` 对比一下和 defconfig 的差距，看看我们砍掉了哪些东西
 
 ## 延伸阅读

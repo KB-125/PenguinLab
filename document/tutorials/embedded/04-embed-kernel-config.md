@@ -56,7 +56,7 @@ related:
 
 ### 五、本站的 mini config 是样板
 
-`configs/arm64-qemu-virt-learn.config`(本仓库)就是这套思路的产物——allnoconfig 起步,只开学习需要的(ARM64 virt + virtio + PL011 + ext4 + 必要驱动),538 项 vs defconfig 3305 项(6.19 内核)。读它能看到"哪些是嵌入式/学习必须、哪些是可裁的"。
+`configs/arm64-qemu-virt-learn.config`(本仓库)就是这套思路的产物——allnoconfig 起步,只开学习需要的(ARM64 virt + virtio + PL011 + ext4 + 必要驱动),575 项 vs defconfig 3305 项(6.19 内核)。读它能看到"哪些是嵌入式/学习必须、哪些是可裁的"。
 
 ## 动手试试
 

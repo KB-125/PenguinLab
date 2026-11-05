@@ -1,8 +1,20 @@
 ## What We're Doing
 
-In this post, we set up the foundational infrastructure for kernel debugging — GDB remote debugging of an ARM64 kernel. We'll rely on this toolchain later when writing kernel modules, debugging drivers, and tracking down panics, so it's worth taking the time to get it right. Honestly, this process is more convoluted than it seems. We ran into three layers of issues: QEMU not exposing a debug port, VSCode's debug configuration using the wrong GDB, and KASLR causing breakpoint address mismatches. None of these are complex in isolation, but stacked together they produce the blood-pressure-spiking phenomenon of "the breakpoint is red but the kernel just runs right past it." We'll break this down from start to finish so you can quickly pinpoint similar issues using this troubleshooting hierarchy in the future.
+In this post, we set up the foundational infrastructure for kernel debugging — GDB remote debugging of an ARM64 kernel. We'll rely on this toolchain later when writing kernel modules, debugging drivers, and tracking down panics, so it's worth taking the time to get it right. Honestly, this process is more convoluted than it seems. We ran into four layers of issues: `vmlinux` had no debug info at all, QEMU did not expose a debug port, VSCode's debug configuration used the wrong GDB, and KASLR caused breakpoint address mismatches. None of these are complex in isolation, but stacked together they produce the blood-pressure-spiking phenomenon of "the breakpoint is red but the kernel just runs right past it." We'll break this down from start to finish so you can quickly pinpoint similar issues using this troubleshooting hierarchy in the future.
 
 ## What You Need to Know
+
+### Layer 0: `vmlinux` Must Actually Contain Debug Info
+
+This layer is neither on the QEMU side nor the GDB side — it is inside the kernel itself. If `vmlinux` has no debug info, GDB still connects and breakpoints still hit, but `list` only shows disassembly, `info locals` shows no variables, and single-stepping has no source line numbers. Many people mistake this for a GDB or KASLR problem, when the kernel was simply built without DWARF. We hit exactly this when configuring the kernel following [02 mini config](./02-kernel-mini-config.md): the fragment contained `CONFIG_DEBUG_INFO=y`, but `olddefconfig` quietly dropped it (the cause and fix are in the "`CONFIG_DEBUG_INFO=y` Is Set but `vmlinux` Has No Debug Info" section over there).
+
+Spend ten seconds verifying before connecting GDB:
+
+```bash
+aarch64-linux-gnu-readelf -S out/build_latest_arm64/vmlinux | grep -c '\.debug_'
+```
+
+It should print a positive number (the number of DWARF debug sections). If it prints `0`, the symbol table carries no debug info — go back to 02 and check `CONFIG_DEBUG_KERNEL` and `CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT` in the fragment. The fastest corroborating signal is file size: a `vmlinux` with debug info is tens of MB, one without is around 7 MB.
 
 ### Layer 1: QEMU Must Expose the GDB Port
 
@@ -48,6 +60,8 @@ The correct approach is to use the `aarch64-linux-gnu-gdb` included with our cro
 
 There are a few key points here. `program` points to `vmlinux` rather than `Image`, because GDB needs an ELF file to read the symbol table and debug information (`Image` is a raw binary stripped of that information). `miDebuggerPath` points to the cross-debugger. `miDebuggerServerAddress` tells VSCode the address and port of the GDB stub. Note that we should not redundantly add `target remote localhost:1234` inside `setupCommands` — the `miDebuggerServerAddress` field itself causes the cppdbg adapter to automatically execute a `target remote` connection, and doing it manually again will trigger a duplicate connection error.
 
+If you're on Ubuntu/Debian and only have `gdb-multiarch` installed (as on our machine — `/usr/bin/gdb-multiarch` exists, but `aarch64-linux-gnu-gdb` is not in PATH), simply replace `aarch64-linux-gnu-gdb` with `gdb-multiarch` in every command above; it has built-in AArch64 support and works exactly the same.
+
 ### Layer 3: KASLR Shifts Breakpoint Addresses
 
 After fixing the first two layers, we used command-line GDB to verify that breakpoints could indeed be set successfully:
@@ -60,12 +74,14 @@ $ aarch64-linux-gnu-gdb -batch \
   -ex "info breakpoints" \
   out/build_latest_arm64/vmlinux
 
-Breakpoint 1 at 0xffff800081f207c4: file init/main.c, line 1007.
+Breakpoint 1 at 0xffff800080550a08: file init/main.c, line 1006.
 ```
 
-The breakpoint at `start_kernel` is set at `0xffff800081f207c4`, the address resolves correctly, and the source line number matches. But the kernel still didn't stop — this is the third layer of the problem.
+The breakpoint at `start_kernel` is set at `0xffff800080550a08`, the address resolves correctly, and the source line number matches. But the kernel still didn't stop — this is the third layer of the problem.
 
-The root cause is KASLR (Kernel Address Space Layout Randomization). Our mini config has `CONFIG_RANDOMIZE_BASE=y` enabled, which means the kernel adds a random offset to its own load base address on every boot. The symbol addresses in the `vmlinux` file are statically linked at compile time — for example, `start_kernel` is at `0xffff800081f207c4`, and the kernel base `_text` starts at `0xffff800080000000`. But if KASLR takes effect, the actual runtime base is shifted to a different address. GDB uses the static compile-time addresses to set breakpoints, so naturally it can't intercept code executing at different addresses.
+The root cause is KASLR (Kernel Address Space Layout Randomization). The symbol addresses in the `vmlinux` file are statically linked at compile time — for example, `start_kernel` is at `0xffff800080550a08`, and the kernel base `_text` starts at `0xffff800080000000`. If KASLR takes effect, the kernel adds a random offset to its load base on every boot, so the actual runtime address diverges from the compile-time symbol address. GDB sets breakpoints using the static addresses, so naturally it can't intercept code executing at different addresses.
+
+One clarification: our mini config starts from `allnoconfig`, which leaves `CONFIG_RANDOMIZE_BASE` off (confirm with `grep RANDOMIZE_BASE out/build_latest_arm64/.config`), so a kernel built from our config doesn't hit this layer. But it's a classic trap — the moment you switch to `defconfig` (which sets `CONFIG_RANDOMIZE_BASE=y`) or enable KASLR manually, compile-time symbol addresses no longer match runtime ones and breakpoints "set fine but never hit."
 
 The solution is to add `nokaslr` to the kernel boot parameters, telling the kernel not to randomize addresses for this boot. We integrated this into the `debug` command so that KASLR is only disabled during debugging and remains enabled for normal runs:
 
@@ -85,7 +101,7 @@ Here we use a bash string replacement trick to insert `nokaslr` into the existin
 
 ### The Complete Debugging Workflow
 
-With all three layers fixed, the debugging workflow is fully connected. It takes three steps.
+With all of the above fixed, the debugging workflow is fully connected. It takes three steps.
 
 First, launch QEMU in debug mode in one terminal:
 
@@ -109,7 +125,7 @@ Third, the breakpoint hits. You'll see GDB stop at the `start_kernel` function i
 
 ### Troubleshooting Hierarchy Summary
 
-Looking back, these three issues form an outside-in troubleshooting hierarchy. The outermost layer is QEMU startup parameters — without `-s -S`, GDB has no window to intervene at all. The middle layer is the debugging toolchain — using the wrong GDB or redundantly executing `target remote` causes connection errors. The deepest layer is the kernel's own security feature, KASLR — which causes runtime addresses to diverge from compile-time symbols. In the future, when encountering "breakpoint not hit" issues, we recommend troubleshooting layer by layer in this order: **QEMU parameters → GDB connection → address mapping**.
+Looking back, these issues form an outside-in troubleshooting hierarchy. The outermost layer is `vmlinux` itself lacking debug info — GDB can still connect and breakpoints can hit, but `list` only shows disassembly and there are no source lines or variables. Next comes QEMU startup parameters — without `-s -S`, GDB has no window to intervene at all. Then the debugging toolchain — using the wrong GDB or redundantly executing `target remote` causes connection errors. The deepest layer is the kernel's own security feature, KASLR — which causes runtime addresses to diverge from compile-time symbols. In the future, when encountering "breakpoint not hit" or "breakpoint hits but no source" issues, we recommend troubleshooting layer by layer in this order: **debug info → QEMU parameters → GDB connection → address mapping**.
 
 ## Try It Yourself
 
